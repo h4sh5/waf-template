@@ -3,7 +3,7 @@
 package main
 
 import (
-	// "errors"
+	"bytes"
 	"io/ioutil"
 	"fmt"
 	"io"
@@ -16,9 +16,9 @@ import (
 var forwardUrl string
 
 // implement more blocking functionality here
-func block_request(r *http.Request) bool {
+func block_request(r *http.Request, reqBody []byte) bool {
 	// return true or false based on blocking
-	log.Println(r.URL.Path)
+
 	if strings.Contains(r.URL.Path, "EICAR") { // EICAR test string
 		return true; // block this request
 	}
@@ -29,17 +29,29 @@ func block_request(r *http.Request) bool {
 func getRoot(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("got / request\n")
 
-	if (block_request(r)) {
+	reqBody, err := ioutil.ReadAll(r.Body)
+	fmt.Printf("reqBody:\n%s", reqBody)
+
+	if err != nil {
+		fmt.Printf("block_request: could not read response body: %s\n", err)	
+	}
+
+	if (block_request(r, reqBody)) {
 		w.WriteHeader(http.StatusNotAcceptable) // block with 406
 		io.WriteString(w, "Blocked by WAF!\n")
 		return
 	} else {
 
-		requestUrl := fmt.Sprintf("%s%s", forwardUrl, r.URL.Path)
-		req, err := http.NewRequest(r.Method, requestUrl, r.Body)
+		requestUrl := fmt.Sprintf("%s%s?%s", forwardUrl, r.URL.Path, r.URL.RawQuery)
+		req, err := http.NewRequest(r.Method, requestUrl, bytes.NewBuffer(reqBody))
 		if err != nil {
 			fmt.Printf("client: could not create request: %s\n", err)
 		}
+
+		// pass thru request headers
+		for k, v := range r.Header {
+	        req.Header[k] = v
+	    }
 
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -49,10 +61,9 @@ func getRoot(w http.ResponseWriter, r *http.Request) {
 		resBody, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			fmt.Printf("client: could not read response body: %s\n", err)
-			
 		}
 
-		// pass thru all headers as well
+		// pass thru response headers as well
 		for k, v := range res.Header {
 	        w.Header().Set(k, v[0])
 	    }
